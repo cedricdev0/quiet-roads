@@ -1,6 +1,6 @@
 # Quiet Roads — Alder Ridge
 
-A small, procedural 3D driving game built with Three.js. The mountain loop, terrain, road markings, forests, civilian traffic, vehicle models, and ambient audio are generated at runtime.
+A small, procedural 3D driving game built with Three.js. The mountain loop, terrain, road markings, forests, civilian traffic, vehicle models, and ambient audio are generated at runtime. Three.js r165 is bundled locally under its MIT license, so gameplay does not need a network connection.
 
 ## Run in a browser
 
@@ -10,7 +10,7 @@ From this directory, run:
 python3 -m http.server 8000
 ```
 
-Open `http://localhost:8000`. The game loads Three.js from jsDelivr, so it needs an internet connection.
+Open `http://localhost:8000`.
 
 ## Controls
 
@@ -23,6 +23,7 @@ Open `http://localhost:8000`. The game loads Three.js from jsDelivr, so it needs
 - **P** pause or resume
 
 Touch screens have on-screen driving controls and support dragging to look around.
+On phones, tilt left or right to steer, then hold the on-screen accelerator or brake/reverse pedal. Use **Set Center** to recalibrate the tilt neutral position; left/right buttons remain as a fallback.
 
 ## Android
 

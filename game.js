@@ -1,4 +1,4 @@
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js';
+import * as THREE from './vendor/three.module.js';
 
 (() => {
   'use strict';
@@ -404,15 +404,15 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.m
     treeGrid.get(key).push({ x, y, z });
   }
   function addForests() {
-    const step = 10.8;
+    const step = 11.8;
     for (let z = -646; z <= 646; z += step) for (let x = -646; x <= 646; x += step) {
       const px = x + range(-4.1, 4.1);
       const pz = z + range(-4.1, 4.1);
       const roadInfo = nearestRoad(px, pz);
       // Leave a clear verge; roadside trees begin just beyond the vehicle's safe shoulder.
-      if (roadInfo.distance < 6.45 || random() < 0.035) continue;
+      if (roadInfo.distance < 7.7 || random() < 0.035) continue;
       const py = terrainSurfaceHeight(px, pz, roadInfo);
-      const scale = range(0.78, 1.31);
+      const scale = range(0.72, 1.17);
       const deciduous = random() < 0.17;
       const tileX = Math.floor((px + 700) / forestTileSize);
       const tileZ = Math.floor((pz + 700) / forestTileSize);
@@ -629,6 +629,7 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.m
 
   const state = { mode: 'menu', speed: 0, lateral: 2.05, lateralSpeed: 0, progress: 0, worldX: 0, worldZ: 0, yaw: 0, distance: 0, time: 0, collisionTimer: 0 };
   const input = new Set();
+  const tiltControl = { active: false, pending: false, calibrated: false, neutral: 0, filtered: null, roll: null, steer: 0, lastEvent: 0 };
   const maxOffset = 4.08;
   function wrapDistance(value) { return THREE.MathUtils.euclideanModulo(value, roadLength); }
   function projectToRoad(x, z, expectedDistance) {
@@ -698,10 +699,14 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.m
     if (state.mode !== 'driving') return;
     state.time += dt;
     state.collisionTimer = Math.max(0, state.collisionTimer - dt);
+    if (tiltControl.active && performance.now() - tiltControl.lastEvent > 900) {
+      tiltControl.steer = THREE.MathUtils.damp(tiltControl.steer, 0, 8, dt);
+      if (tiltControl.lastEvent && performance.now() - tiltControl.lastEvent > 2600) setGyroStatus('NO SENSOR · USE ARROWS');
+    }
     const accelerate = input.has('KeyW') ? 1 : 0;
     const reverse = input.has('KeyS') ? 1 : 0;
     const handbrake = input.has('Space');
-    const steering = (input.has('KeyD') ? 1 : 0) - (input.has('KeyA') ? 1 : 0);
+    const steering = clamp((input.has('KeyD') ? 1 : 0) - (input.has('KeyA') ? 1 : 0) + tiltControl.steer, -1, 1);
     if (accelerate) {
       if (state.speed < -0.5) state.speed = Math.min(0, state.speed + 18 * dt);
       else state.speed += 10.8 * dt;
@@ -800,11 +805,96 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.m
     brand: $('#brand'), topRight: $('#topRight'), hint: $('#drivingHint'), speed: $('#speed'), gear: $('#gear'),
     overlay: $('#overlay'), panel: $('#panel'), eyebrow: $('#eyebrow'), title: $('#title'), description: $('#description'),
     action: $('#action'), guide: $('#controlGuide'), finePrint: $('#finePrint'), mouseNote: $('#mouseNote'),
-    speedPanel: $('#speedPanel'), audio: $('#audio'),
+    speedPanel: $('#speedPanel'), audio: $('#audio'), gyroStatus: $('#gyroStatus'), gyroDot: $('#gyroDot'),
   };
-  const cameraState = { yaw: 0, pitch: 0.22, distance: 11.8, dragging: false, lastX: 0, lastY: 0, noteTimer: 0 };
+  const cameraState = { yaw: 0, pitch: 0.22, distance: 11.8, dragging: false, lastX: 0, lastY: 0, noteTimer: 0, touches: new Map(), pinchDistance: null };
   const cameraTarget = new THREE.Vector3();
   const cameraDesired = new THREE.Vector3();
+  function touchDevice() {
+    return navigator.maxTouchPoints > 0 || matchMedia('(pointer:coarse), (any-pointer:coarse)').matches;
+  }
+  function showCameraHelp() {
+    hud.mouseNote.textContent = touchDevice()
+      ? 'Drag to look · pinch to zoom'
+      : 'Click to capture mouse · Esc to release · scroll to adjust distance';
+  }
+  function pinchDistance() {
+    const points = [...cameraState.touches.values()];
+    if (points.length < 2) return null;
+    return Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+  }
+  function setGyroStatus(message, ready = false) {
+    hud.gyroStatus.textContent = message;
+    hud.gyroDot.classList.toggle('ready', ready);
+  }
+  function readScreenRoll(event) {
+    if (!Number.isFinite(event.beta) || !Number.isFinite(event.gamma)) return null;
+    const beta = THREE.MathUtils.degToRad(event.beta);
+    const gamma = THREE.MathUtils.degToRad(event.gamma);
+    const gravityX = -Math.sin(gamma) * Math.cos(beta);
+    const gravityY = Math.sin(beta);
+    const gravityZ = Math.cos(gamma) * Math.cos(beta);
+    const screenAngle = ((window.screen.orientation?.angle ?? window.orientation ?? 0) + 360) % 360;
+    const angle = THREE.MathUtils.degToRad(screenAngle);
+    const screenHorizontalGravity = gravityX * Math.cos(angle) - gravityY * Math.sin(angle);
+    return THREE.MathUtils.radToDeg(Math.atan2(screenHorizontalGravity, gravityZ));
+  }
+  function handleDeviceOrientation(event) {
+    const roll = readScreenRoll(event);
+    if (roll === null) return;
+    tiltControl.roll = roll;
+    tiltControl.lastEvent = performance.now();
+    tiltControl.filtered = tiltControl.filtered === null ? roll : THREE.MathUtils.damp(tiltControl.filtered, roll, 12, 1 / 60);
+    if (!tiltControl.calibrated) {
+      tiltControl.neutral = tiltControl.filtered;
+      tiltControl.calibrated = true;
+      setGyroStatus('GYRO READY · TILT TO STEER', true);
+    }
+    const offset = tiltControl.filtered - tiltControl.neutral;
+    const deadZone = 2.2;
+    const normalizedTilt = Math.sign(offset) * clamp((Math.abs(offset) - deadZone) / 19, 0, 1);
+    tiltControl.steer = normalizedTilt;
+    if (Math.abs(normalizedTilt) > 0.16) setGyroStatus(normalizedTilt > 0 ? 'TILT RIGHT' : 'TILT LEFT', true);
+    else if (tiltControl.calibrated) setGyroStatus('GYRO READY · TILT TO STEER', true);
+  }
+  async function enableGyroscope() {
+    if (tiltControl.active || tiltControl.pending) return;
+    if (!('DeviceOrientationEvent' in window)) {
+      setGyroStatus('NO GYRO · USE ARROWS');
+      return;
+    }
+    tiltControl.pending = true;
+    try {
+      const Orientation = window.DeviceOrientationEvent;
+      if (typeof Orientation.requestPermission === 'function') {
+        const permission = await Orientation.requestPermission();
+        if (permission !== 'granted') {
+          setGyroStatus('GYRO OFF · USE ARROWS');
+          return;
+        }
+      }
+      window.addEventListener('deviceorientation', handleDeviceOrientation, true);
+      tiltControl.active = true;
+      setGyroStatus('WAITING FOR GYRO');
+      setTimeout(() => {
+        if (tiltControl.active && tiltControl.roll === null) setGyroStatus('NO SENSOR · USE ARROWS');
+      }, 2600);
+    } catch (error) {
+      setGyroStatus('GYRO OFF · USE ARROWS');
+    } finally {
+      tiltControl.pending = false;
+    }
+  }
+  function calibrateGyroscope() {
+    if (tiltControl.filtered === null) {
+      setGyroStatus(tiltControl.active ? 'HOLD STILL · TRY AGAIN' : 'START DRIVE TO ENABLE GYRO');
+      return;
+    }
+    tiltControl.neutral = tiltControl.filtered;
+    tiltControl.calibrated = true;
+    tiltControl.steer = 0;
+    setGyroStatus('CENTER SET · TILT TO STEER', true);
+  }
   function updateCamera(dt) {
     const frame = frameAt(state.progress);
     const px = state.worldX;
@@ -894,6 +984,7 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.m
     state.mode = 'driving';
     hud.overlay.classList.add('hidden');
     hud.guide.style.display = '';
+    showCameraHelp();
     hud.mouseNote.classList.add('show');
     clearTimeout(cameraState.noteTimer);
     cameraState.noteTimer = setTimeout(() => hud.mouseNote.classList.remove('show'), 5200);
@@ -914,11 +1005,13 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.m
     hud.topRight.classList.add('show');
     hud.hint.classList.add('show');
     hud.speedPanel.classList.add('show');
+    showCameraHelp();
     hud.mouseNote.classList.add('show');
     clearTimeout(cameraState.noteTimer);
     cameraState.noteTimer = setTimeout(() => hud.mouseNote.classList.remove('show'), 6500);
     startAudio();
     if (audioEnabled && audioContext) setAudio(true);
+    if (touchDevice()) enableGyroscope();
   }
   function resetCar() {
     state.speed = 0;
@@ -932,6 +1025,7 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.m
   hud.action.addEventListener('click', beginDrive);
   $('#pause').addEventListener('click', () => state.mode === 'paused' ? resumeDrive() : showPause());
   hud.audio.addEventListener('click', () => setAudio(!audioEnabled));
+  $('#gyroCalibrate').addEventListener('click', calibrateGyroscope);
 
   function rotateCamera(dx, dy) {
     cameraState.yaw -= dx * 0.0024;
@@ -945,6 +1039,15 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.m
   });
   canvas.addEventListener('pointerdown', (event) => {
     if (document.pointerLockElement === canvas || state.mode !== 'driving') return;
+    if (event.pointerType === 'touch') {
+      cameraState.touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      cameraState.pinchDistance = pinchDistance();
+      cameraState.dragging = cameraState.touches.size === 1;
+      cameraState.lastX = event.clientX;
+      cameraState.lastY = event.clientY;
+      if (canvas.setPointerCapture) canvas.setPointerCapture(event.pointerId);
+      return;
+    }
     cameraState.dragging = true;
     cameraState.lastX = event.clientX;
     cameraState.lastY = event.clientY;
@@ -953,13 +1056,36 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.m
   canvas.addEventListener('pointermove', (event) => {
     if (state.mode !== 'driving') return;
     if (document.pointerLockElement === canvas) rotateCamera(event.movementX || 0, event.movementY || 0);
+    else if (event.pointerType === 'touch' && cameraState.touches.has(event.pointerId)) {
+      const previous = cameraState.touches.get(event.pointerId);
+      cameraState.touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (cameraState.touches.size >= 2) {
+        const nextDistance = pinchDistance();
+        if (cameraState.pinchDistance !== null && nextDistance !== null) {
+          cameraState.distance = clamp(cameraState.distance - (nextDistance - cameraState.pinchDistance) * 0.025, 7, 19);
+        }
+        cameraState.pinchDistance = nextDistance;
+      } else {
+        rotateCamera(event.clientX - previous.x, event.clientY - previous.y);
+      }
+    }
     else if (cameraState.dragging) {
       rotateCamera(event.clientX - cameraState.lastX, event.clientY - cameraState.lastY);
       cameraState.lastX = event.clientX;
       cameraState.lastY = event.clientY;
     }
   });
-  const stopDragging = () => { cameraState.dragging = false; };
+  const stopDragging = (event) => {
+    cameraState.dragging = false;
+    if (event?.pointerId !== undefined) cameraState.touches.delete(event.pointerId);
+    cameraState.pinchDistance = pinchDistance();
+    if (cameraState.touches.size === 1) {
+      const point = cameraState.touches.values().next().value;
+      cameraState.lastX = point.x;
+      cameraState.lastY = point.y;
+      cameraState.dragging = true;
+    }
+  };
   canvas.addEventListener('pointerup', stopDragging);
   canvas.addEventListener('pointercancel', stopDragging);
   canvas.addEventListener('lostpointercapture', stopDragging);
@@ -970,6 +1096,7 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.m
   document.addEventListener('pointerlockchange', () => {
     if (document.pointerLockElement === canvas) hud.mouseNote.classList.remove('show');
     else if (state.mode === 'driving') {
+      showCameraHelp();
       hud.mouseNote.classList.add('show');
       clearTimeout(cameraState.noteTimer);
       cameraState.noteTimer = setTimeout(() => hud.mouseNote.classList.remove('show'), 4300);
