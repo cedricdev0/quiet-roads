@@ -1,6 +1,6 @@
-# Skyline Obby for Android
+# Quiet Roads for Android
 
-The Android app wraps the browser game in a fullscreen, hardware-accelerated WebView. The game page is bundled in `app/src/main/assets`; Three.js is loaded from jsDelivr, so the first launch needs an internet connection.
+The Android app wraps the game in a fullscreen, hardware-accelerated WebView. The game files are bundled in `app/src/main/assets`; Three.js is loaded from jsDelivr, so the first launch needs an internet connection.
 
 ## Build
 
@@ -8,6 +8,6 @@ From this directory, run `gradle assembleDebug`. The installable debug APK is wr
 
 ## Touch controls
 
-- Direction pad: move forward, backward, and sideways
-- Look arrows: rotate the camera
-- Jump button: jump
+- Direction pad: accelerate, reverse, and steer
+- Drag the scene to look around
+- Brake button: handbrake

@@ -3,7 +3,7 @@
     <application
         android:allowBackup="false"
         android:hardwareAccelerated="true"
-        android:label="Skyline Obby"
+        android:label="Quiet Roads"
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="false">
         <activity
